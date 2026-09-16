@@ -1,0 +1,13 @@
+# 實際的設定檔含有 webhook 與 RCON 密碼，不要上傳
+*.env
+!mc-notify.env.example
+status_board.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# 編輯器
+.vscode/
+*.swp
