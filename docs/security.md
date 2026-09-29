@@ -11,11 +11,31 @@ mc-notify 處理的是**不可信任的輸入**：log 內容有一部分來自�
 - 連線外網的 Discord
 - 寫入自己的看板紀錄目錄
 
-所以服務以專用的系統帳號 `mc-notify` 執行：無法登入、沒有家目錄，只透過群組取得讀取 log 的權限。萬一程式有漏洞被利用，影響範圍僅限於這個帳號能讀到的東西。
+預設以專用的系統帳號 `mc-notify` 執行：無法登入、沒有家目錄，只透過群組取得讀取 log 的權限。萬一程式有漏洞被利用，影響範圍僅限於這個帳號能讀到的東西。
 
-### 為什麼不用跑伺服器的那個帳號
+### 兩種選擇
 
-也可以，設定最簡單，但那個帳號能修改世界檔、`server.properties` 與模組。用專用帳號時，mc-notify 對伺服器只有**讀取**權限。
+| | 專用帳號 `mc-notify`（預設） | 跑伺服器的帳號（例如 `minecraft`） |
+|---|---|---|
+| 設定 | 要加入伺服器的群組，注意目錄權限 | 不用設定 |
+| 對伺服器檔案 | 只能讀取 | 帳號本身有寫入權限 |
+| 對伺服器程序 | 無法影響 | 可以送訊號（例如 `kill`） |
+| 適合 | 想把權限切乾淨 | 想少一層設定、自己一個人管的主機 |
+
+```bash
+sudo ./install.sh --user minecraft          # 全部實例
+sudo ./install.sh add modpack --user minecraft   # 只有這個實例
+```
+
+指定方式是寫入 systemd drop-in（`/etc/systemd/system/mc-notify@.service.d/10-user.conf` 或 `mc-notify@<實例>.service.d/`），不會改動服務檔本身，所以更新時不會被覆蓋。
+
+### 用跑伺服器的帳號有多危險？
+
+比 root 安全得多，也不算糟糕的選擇，畢竟這個帳號本來就只有伺服器相關的權限。而且**沙箱會擋掉大部分的寫入**：`ProtectSystem=strict` 讓整個檔案系統唯讀、`ProtectHome=read-only` 讓家目錄唯讀，唯一可寫的是看板紀錄目錄。所以即使帳號本身擁有世界檔，mc-notify 這個程序也改不了它們。
+
+剩下的差別主要是：同一個帳號下的程序可以互相送訊號，也就是理論上能終止伺服器程序。如果覺得這點無所謂（單人管理的主機通常如此），用伺服器帳號完全合理；想把權限切得更乾淨，就用預設的專用帳號。
+
+不論用哪個帳號，**都不要用 root 執行**。
 
 ## 檔案權限
 
@@ -26,14 +46,15 @@ mc-notify 處理的是**不可信任的輸入**：log 內容有一部分來自�
 | `/etc/mc-notify/` | root:root | 700 | 一般使用者無法列出有哪些設定 |
 | `/etc/mc-notify/*.env` | root:root | 600 | 含 webhook 網址與 RCON 密碼 |
 | `/etc/systemd/system/mc-notify@.service` | root:root | 644 | |
-| `/var/lib/mc-notify/<實例>/` | mc-notify | 700 | 由 systemd `StateDirectory=` 自動建立 |
+| `/etc/systemd/system/mc-notify@.service.d/10-user.conf` | root:root | 644 | 指定執行身分的 drop-in |
+| `/var/lib/mc-notify/<實例>/` | 服務帳號 | 700 | 由 systemd `StateDirectory=` 自動建立 |
 
-### 程式檔一定要歸 root
+### 程式檔一定要歸 root（用伺服器帳號時更重要）
 
 - **如果程式檔能被服務帳號修改**：該帳號被攻破時，攻擊者可以改寫程式，每次服務重啟都會執行他的程式碼，入侵就被「持久化」了。
 - **如果服務以 root 執行，而程式檔能被一般使用者修改**：這是典型的提權漏洞。
 
-「程式歸 root、服務用一般帳號」可以同時擋住這兩種風險。
+「程式歸 root、服務用一般帳號」可以同時擋住這兩種風險。用跑伺服器的帳號執行時，這點尤其重要：一個有漏洞的模組如果能改寫 mc-notify 的程式檔，就等於取得了一個會自動重啟的執行點（Log4Shell 就是 Minecraft 伺服器遇過的真實案例）。所以 `/opt/mc-notify` 一律歸 root，任何伺服器帳號都不能寫入。
 
 ### 設定檔為什麼服務帳號讀不到也沒關係
 

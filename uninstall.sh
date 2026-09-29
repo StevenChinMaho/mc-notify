@@ -2,7 +2,7 @@
 # mc-notify 移除工具
 #
 #   sudo ./uninstall.sh            移除程式與 systemd 服務，保留設定檔與看板紀錄
-#   sudo ./uninstall.sh --purge    連同設定檔、看板紀錄與服務帳號一起刪除
+#   sudo ./uninstall.sh --purge    連同設定檔、看板紀錄與專用帳號一起刪除
 #   加上 -y 可略過確認
 set -euo pipefail
 
@@ -17,7 +17,7 @@ for arg in "$@"; do
     case $arg in
         --purge) purge=1 ;;
         -y|--yes) yes=1 ;;
-        -h|--help) sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "未知的參數：$arg" >&2; exit 1 ;;
     esac
 done
@@ -31,7 +31,7 @@ echo "  - $PREFIX"
 if ((purge)); then
     echo "  - $CONF_DIR（設定檔，包含 webhook 與 RCON 密碼）"
     echo "  - $STATE_DIR（狀態看板紀錄）"
-    echo "  - 帳號 $SVC_USER"
+    echo "  - 專用帳號 $SVC_USER（如果存在；自行指定的帳號不會被動到）"
 fi
 if ((!yes)); then
     read -r -p "確定要繼續嗎？[y/N] " answer
@@ -53,6 +53,8 @@ fi
 
 rm -f "$UNIT_DIR/mc-notify@.service"
 rm -rf "$UNIT_DIR/mc-notify@.service.d"
+# 各實例的執行身分 drop-in
+find "$UNIT_DIR" -maxdepth 1 -type d -name 'mc-notify@*.service.d' -exec rm -rf {} +
 systemctl daemon-reload
 systemctl reset-failed 'mc-notify@*' 2>/dev/null || true
 rm -rf "$PREFIX"
@@ -61,9 +63,9 @@ echo "已移除程式與服務"
 if ((purge)); then
     rm -rf "$CONF_DIR" "$STATE_DIR"
     if id -u "$SVC_USER" >/dev/null 2>&1; then
-        userdel "$SVC_USER"
+        userdel "$SVC_USER" && echo "已刪除專用帳號 $SVC_USER"
     fi
-    echo "已刪除設定檔、看板紀錄與帳號 $SVC_USER"
+    echo "已刪除設定檔與看板紀錄"
 else
     echo "設定檔保留在 $CONF_DIR（重新安裝後可直接使用；完全刪除請加 --purge）"
 fi

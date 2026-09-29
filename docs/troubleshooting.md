@@ -10,7 +10,7 @@ journalctl -u mc-notify@<名稱> -n 50        # 查看服務 log
 服務啟動時會印出目前生效的設定，可以確認設定檔有沒有被正確讀取：
 
 ```
-[mc_notify] mc-notify 2.1.0 已啟動：log=/srv/minecraft/modpack/logs/latest.log，RCON=127.0.0.1:25575，TPS 指令='forge tps'
+[mc_notify] mc-notify 2.2.0 已啟動：log=/srv/minecraft/modpack/logs/latest.log，RCON=127.0.0.1:25575，TPS 指令='forge tps'
 [mc_notify] 玩家進出通知=開，ping 身分組=123...（事件 ['crash', 'down']），靜音事件=['players']，附加 crash report=開，狀態看板=關
 ```
 
@@ -48,13 +48,21 @@ journalctl -u mc-notify@<名稱> -n 50        # 查看服務 log
 ```
 
 ```bash
+systemctl show -p User --value mc-notify@<名稱>.service   # 確認執行身分
 namei -l /伺服器路徑/logs/latest.log     # 每一層都要有 x 權限
-id mc-notify                              # 確認群組
-sudo usermod -aG <伺服器的群組> mc-notify
+id <服務帳號>                             # 確認群組
+sudo usermod -aG <伺服器的群組> <服務帳號>
 sudo systemctl restart mc-notify@<名稱>   # 群組變更要重啟才會生效
 ```
 
-伺服器在 `/home/使用者/` 底下時，家目錄通常是 750，`mc-notify` 必須在該使用者的群組裡。
+伺服器在 `/home/使用者/` 底下時，家目錄通常是 750，服務帳號必須在該使用者的群組裡。
+
+嫌麻煩的話，直接改用跑伺服器的帳號執行就不會有權限問題：
+
+```bash
+sudo ./install.sh --user <跑伺服器的帳號>
+sudo systemctl restart 'mc-notify@*'
+```
 
 ## RCON 連不上
 
@@ -116,6 +124,7 @@ systemctl list-units 'mc-notify*'
 
 - 服務檔要有 `StateDirectory=mc-notify/%i`（2.0 以後的版本才有）
 - `sudo ./install.sh check <名稱>` 確認紀錄目錄可寫入
+- 剛換過執行身分：紀錄目錄還屬於舊帳號，執行 `sudo chown -R <新帳號> /var/lib/mc-notify/<名稱>`
 - 更換 webhook 網址後會建立新看板，這是預期行為
 
 ## 狀態看板停在「最後更新 很久以前」

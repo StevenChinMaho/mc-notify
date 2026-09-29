@@ -4,6 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# 預設以專用帳號執行。要改用其他帳號（例如跑伺服器的 minecraft），
+# 不要直接改這裡，請用 install.sh --user 或 systemctl edit 產生 drop-in，
+# 更新時才不會被覆蓋。詳見 docs/security.md
 User=mc-notify
 Group=mc-notify
 EnvironmentFile=/etc/mc-notify/%i.env

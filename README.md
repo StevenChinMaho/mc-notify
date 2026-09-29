@@ -32,14 +32,18 @@ Minecraft Java 伺服器的 Discord 通知工具。追蹤伺服器 log 並透過
 git clone https://github.com/<你的帳號>/mc-notify.git
 cd mc-notify
 
-# 1. 安裝程式、服務帳號與 systemd 服務
+# 1. 安裝程式與 systemd 服務
+#    預設建立專用帳號 mc-notify；想直接用跑伺服器的帳號就加 --user
 sudo ./install.sh
+# sudo ./install.sh --user minecraft
 
 # 2. 為伺服器建立設定檔
-#    --group 填伺服器檔案所屬的群組，讓服務帳號能讀取 log
+#    用專用帳號時，--group 填伺服器檔案所屬的群組，讓它讀得到 log
 sudo ./install.sh add modpack --group <伺服器的群組>
 sudo nano /etc/mc-notify/modpack.env
 ```
+
+服務的執行身分可以自由選擇：專用帳號 `mc-notify`（預設，權限最小）或跑伺服器的帳號（設定最簡單）。取捨見 [安全性](docs/security.md#執行身分)。
 
 在伺服器的 `server.properties` 開啟 RCON，然後重啟伺服器：
 

@@ -1,5 +1,18 @@
 # 更新紀錄
 
+## 2.2.0 — 2026-09-29
+
+### 新增
+- 服務的執行身分可設定：`install.sh --user <帳號>`（全域）、`install.sh add <名稱> --user <帳號>`（單一實例）。預設仍是專用帳號 `mc-notify`
+- 以 systemd drop-in 指定身分，不改動服務檔，更新時不會被覆蓋
+- `install.sh check` 會顯示並使用實際的執行身分
+- `install.sh add` 會顯示該實例將以哪個帳號執行
+
+### 變更
+- 不帶 `--user` 更新時，沿用現有的執行身分設定，也不會多建立專用帳號
+- `--user mc-notify` 會移除 drop-in，改回預設
+- `uninstall.sh --purge` 只刪除專用帳號 `mc-notify`，不會動到自行指定的帳號，並會清掉所有執行身分 drop-in
+
 ## 2.1.0 — 2026-09-16
 
 ### 新增

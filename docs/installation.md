@@ -34,15 +34,28 @@ broadcast-rcon-to-ops=false
 ```bash
 git clone https://github.com/<你的帳號>/mc-notify.git
 cd mc-notify
-sudo ./install.sh
+
+sudo ./install.sh                      # 使用專用帳號 mc-notify（預設）
+sudo ./install.sh --user minecraft     # 使用跑伺服器的既有帳號
 ```
+
+### 要用哪個帳號執行？
+
+| | 專用帳號（預設） | 跑伺服器的帳號 |
+|---|---|---|
+| 設定 | 需要把帳號加入伺服器的群組 | 不用設定，log 一定讀得到 |
+| 權限 | 對伺服器只有讀取權限 | 與伺服器程序同權限 |
+| 指令 | `sudo ./install.sh` | `sudo ./install.sh --user <帳號>` |
+
+取捨與風險見 [安全性](security.md#執行身分)。兩者隨時可以互相切換，見[切換執行身分](#切換執行身分)。
 
 腳本會做這些事，重複執行也安全：
 
 | 步驟 | 內容 |
 |---|---|
 | 檢查 Python | 確認版本 ≥ 3.8 |
-| 建立帳號 | 系統帳號 `mc-notify`，無法登入、沒有家目錄 |
+| 帳號 | 沒指定 `--user` 時建立系統帳號 `mc-notify`（無法登入、沒有家目錄）；指定時使用既有帳號，不建立新帳號 |
+| 執行身分 | 指定 `--user` 時寫入 drop-in `/etc/systemd/system/mc-notify@.service.d/10-user.conf`，更新時不會被覆蓋 |
 | 安裝程式 | `/opt/mc-notify/mc_notify.py` 與設定檔範例，擁有者 root、權限 644 |
 | 設定目錄 | `/etc/mc-notify/`，權限 700 |
 | 安裝服務 | `/etc/systemd/system/mc-notify@.service` 並 `daemon-reload` |
@@ -57,11 +70,14 @@ sudo ./install.sh add modpack --group <伺服器的群組>
 
 - `modpack` 是實例名稱，只能用英數字、底線、連字號。之後的服務名稱就是 `mc-notify@modpack`。
 - 會從範例建立 `/etc/mc-notify/modpack.env`（root 擁有、權限 600）。已存在的設定檔不會被覆蓋。
-- `--group` 會把 `mc-notify` 帳號加入該群組，讓它能讀取伺服器的 log。
+- `--group` 會把服務帳號加入該群組，讓它能讀取伺服器的 log。用跑伺服器的帳號執行時不需要這個參數。
+- `--user <帳號>` 可以讓**這個實例**用不同的帳號執行，蓋過安裝時的全域設定。多個伺服器分屬不同帳號時很有用。
+
+指令最後會顯示這個實例實際會用哪個帳號執行。
 
 ### 確認讀取權限
 
-服務帳號必須能讀取 `logs/latest.log`，要附上 crash report 的話還要能讀 `crash-reports/`。路徑上的**每一層目錄**都需要執行（x）權限：
+服務帳號必須能讀取 `logs/latest.log`，要附上 crash report 的話還要能讀 `crash-reports/`。用跑伺服器的帳號執行時這一步可以跳過。路徑上的**每一層目錄**都需要執行（x）權限：
 
 ```bash
 # 查看伺服器檔案屬於哪個群組
@@ -75,7 +91,7 @@ sudo -u mc-notify head -n 3 /伺服器路徑/logs/latest.log
 sudo -u mc-notify ls /伺服器路徑/crash-reports
 ```
 
-Ubuntu 21.04 之後，新建的家目錄預設是 `750`。如果伺服器放在 `/home/使用者/` 底下，`mc-notify` 必須加入該使用者的群組才進得去。
+把 `mc-notify` 換成實際的服務帳號。Ubuntu 21.04 之後，新建的家目錄預設是 `750`，所以伺服器放在 `/home/使用者/` 底下時，服務帳號必須加入該使用者的群組才進得去。
 
 ## 5. 編輯設定檔
 
@@ -103,7 +119,7 @@ sudo ./install.sh check modpack               # 只檢查
 sudo ./install.sh check modpack --send-test   # 檢查並發送測試訊息
 ```
 
-檢查會用 `systemd-run` 以**服務帳號的身分、相同的設定檔與沙箱**執行 `mc_notify.py --check`，結果跟正式服務一致。檢查項目：
+檢查會用 `systemd-run` 以**服務實際的執行身分、相同的設定檔與沙箱**執行 `mc_notify.py --check`（身分會顯示在第一行），結果跟正式服務一致。檢查項目：
 
 - 必要設定是否齊全、格式是否正確
 - 能否讀取 log 與 crash report 目錄
@@ -114,7 +130,8 @@ sudo ./install.sh check modpack --send-test   # 檢查並發送測試訊息
 輸出範例：
 
 ```
-mc-notify 2.1.0 設定檢查（模組服）
+==> 以 minecraft:minecraft 的身分檢查 mc-notify@modpack
+mc-notify 2.2.0 設定檢查（模組服）
 ✅ 必要設定齊全
 ✅ 可以讀取 log：/srv/minecraft/modpack/logs/latest.log
 ✅ 可以讀取 crash report 目錄：/srv/minecraft/modpack/crash-reports
@@ -146,12 +163,35 @@ sudo ./install.sh
 
 安裝腳本會自動重新啟動執行中的實例。更新後建議看一下 [CHANGELOG](../CHANGELOG.md)，並對照 `/opt/mc-notify/mc-notify.env.example` 看看有沒有新的設定可以加。
 
+## 切換執行身分
+
+隨時可以改變，不影響設定檔：
+
+```bash
+sudo ./install.sh --user minecraft      # 全部實例改用 minecraft
+sudo ./install.sh --user mc-notify      # 改回專用帳號（會移除 drop-in）
+sudo ./install.sh add vanilla --user someone   # 只改某一個實例
+
+sudo systemctl restart 'mc-notify@*'
+sudo ./install.sh check modpack         # 確認新身分讀得到 log
+```
+
+之後執行不帶 `--user` 的 `sudo ./install.sh` 更新時，會沿用現有設定，也不會多建立帳號。
+
+改用其他帳號後，如果狀態看板抱怨無法寫入紀錄，把紀錄目錄的擁有者換過去：
+
+```bash
+sudo chown -R <新帳號> /var/lib/mc-notify/<實例名稱>
+```
+
 ## 移除
 
 ```bash
 sudo ./uninstall.sh            # 移除程式與服務，保留設定檔
-sudo ./uninstall.sh --purge    # 連同設定檔、看板紀錄、服務帳號一起刪除
+sudo ./uninstall.sh --purge    # 連同設定檔、看板紀錄、專用帳號一起刪除
 ```
+
+`--purge` 只會刪除專用帳號 `mc-notify`，自行指定的帳號（例如 `minecraft`）不會被動到。
 
 Discord 上的狀態看板訊息不會自動刪除。
 
@@ -162,7 +202,7 @@ Discord 上的狀態看板訊息不會自動刪除。
 想了解每個步驟在做什麼，或不想用腳本時：
 
 ```bash
-# 服務帳號
+# 服務帳號（要用跑伺服器的既有帳號時，跳過這兩行）
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin mc-notify
 sudo usermod -aG <伺服器的群組> mc-notify
 
@@ -177,11 +217,19 @@ sudo nano /etc/mc-notify/modpack.env
 
 # 服務
 sudo install -o root -g root -m 644 systemd/mc-notify@.service /etc/systemd/system/
+
+# 要改用其他帳號執行時，用 drop-in（不要直接改服務檔，更新會被覆蓋）
+sudo systemctl edit mc-notify@.service     # 或手動建立下面這個檔案
+# /etc/systemd/system/mc-notify@.service.d/10-user.conf
+#   [Service]
+#   User=minecraft
+#   Group=minecraft
+
 sudo systemctl daemon-reload
 
 # 以服務帳號檢查（手動版的 install.sh check）
 sudo systemd-run --quiet --wait --pipe --collect \
-    -p User=mc-notify -p Group=mc-notify \
+    -p User="$(systemctl show -p User --value mc-notify@modpack.service)" \
     -p EnvironmentFile=/etc/mc-notify/modpack.env \
     -p StateDirectory=mc-notify/modpack \
     /usr/bin/python3 /opt/mc-notify/mc_notify.py --check

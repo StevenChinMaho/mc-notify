@@ -51,10 +51,33 @@ sudo systemctl enable --now mc-notify@modpack
 systemctl list-unit-files 'mc-notify*'    # 應該只剩 mc-notify@.service
 ```
 
+## 切換執行身分
+
+從專用帳號改成跑伺服器的帳號（或反過來）不需要重裝：
+
+```bash
+sudo ./install.sh --user minecraft     # 或 --user mc-notify 改回預設
+sudo systemctl restart 'mc-notify@*'
+sudo ./install.sh check modpack
+```
+
+設定檔不受影響。改用其他帳號後如果看板無法寫入紀錄：
+
+```bash
+sudo chown -R minecraft /var/lib/mc-notify/modpack
+```
+
+不再需要專用帳號時可以刪掉它（它沒有家目錄，也沒有其他檔案）：
+
+```bash
+sudo userdel mc-notify
+```
+
 ## 設定名稱的變化
 
 | 版本 | 變化 |
 |---|---|
+| 2.2 | 執行身分可設定（`install.sh --user`），預設仍是專用帳號 `mc-notify` |
 | 2.0 | 新增 `MC_AVATAR_URL`、`MC_PING_ROLE_ID`、`MC_PING_EVENTS`、`MC_SILENT_EVENTS`、`MC_ATTACH_CRASH_REPORT`、`MC_ATTACH_MAX_MB`、`MC_STATUS_BOARD`、`MC_STATUS_INTERVAL`、`MC_STATE_DIR` |
 | 2.0 | **行為改變**：玩家進出通知預設改為靜音訊息。想恢復推播，設定 `MC_SILENT_EVENTS=` |
 | 1.2 | `MC_TPS_COMMAND` 可以留空（只檢查存活） |

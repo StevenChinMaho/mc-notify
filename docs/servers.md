@@ -25,7 +25,7 @@ sudo systemctl enable --now mc-notify@vanilla
 - **每個伺服器的 `rcon.port` 必須不同**（例如 25575、25576、25577），每個都要設 `broadcast-rcon-to-ops=false`。
 - **webhook 可以共用**，訊息的發送者名稱是 `MC_SERVER_NAME`，看得出來源。但建議每台一個 webhook，才能各自設定頭像，也方便分頻道。
 - 共用同一個 webhook 又開了狀態看板時，每個實例會各自維護一則看板訊息，互不影響。
-- `mc-notify` 帳號要能讀取每一台伺服器的 log，可能需要加入多個群組。
+- 服務帳號要能讀取每一台伺服器的 log，可能需要加入多個群組。若每台伺服器分屬不同帳號，可以用 `sudo ./install.sh add <名稱> --user <帳號>` 讓每個實例各自使用對應的帳號。
 
 ### 管理多個實例
 

@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # mc-notify 安裝工具
 #
-#   sudo ./install.sh                          安裝或更新程式與 systemd 服務
-#   sudo ./install.sh add <名稱> [--group G]   新增一個伺服器的設定檔
+#   sudo ./install.sh [--user U]               安裝或更新程式與 systemd 服務
+#   sudo ./install.sh add <名稱> [--user U] [--group G]
+#                                              新增一個伺服器的設定檔
 #   sudo ./install.sh check <名稱> [--send-test]
 #                                              用服務的身分檢查設定（可順便發測試訊息）
+#
+#   --user  服務要用哪個帳號執行。省略時使用專用帳號 mc-notify（不存在就建立）；
+#           指定既有帳號（例如跑伺服器的 minecraft）時不會建立新帳號。
+#           在 install 指定是全域預設，在 add 指定則只套用到該實例。
+#   --group 把服務帳號加入這個群組，讓它讀得到伺服器的 log
 #
 # 詳細說明：docs/installation.md
 set -euo pipefail
@@ -21,7 +27,7 @@ warn()  { printf '\033[1;33m !\033[0m %s\n' "$*" >&2; }
 die()   { printf '\033[1;31m ✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
-    sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
     exit "${1:-0}"
 }
 
@@ -37,9 +43,39 @@ valid_name() {
     [[ $1 =~ ^[A-Za-z0-9_-]+$ ]] || die "名稱只能包含英數字、底線和連字號：$1"
 }
 
+# 寫入 systemd drop-in，指定服務要用哪個帳號執行
+# $1 = drop-in 目錄（全域或單一實例）  $2 = 帳號
+write_user_dropin() {
+    local dir="$1" user="$2" group
+    group="$(id -gn "$user")"
+    install -d -o root -g root -m 755 "$dir"
+    cat > "$dir/10-user.conf" <<CONF
+# 由 install.sh 產生：指定服務的執行身分
+[Service]
+User=$user
+Group=$group
+CONF
+    chmod 644 "$dir/10-user.conf"
+    ok "執行身分設為 ${user}:${group}（$dir/10-user.conf）"
+}
+
+# 目前實際生效的執行身分（會把 drop-in 算進去）
+effective_user() {
+    local unit="mc-notify@$1.service" user
+    user="$(systemctl show -p User --value "$unit" 2>/dev/null || true)"
+    echo "${user:-$SVC_USER}"
+}
+
 cmd_install() {
     require_root
     require_systemd
+    local user=""
+    while (($#)); do
+        case $1 in
+            --user) user="${2:-}"; [[ -n $user ]] || die "--user 需要帳號名稱"; shift 2 ;;
+            *) die "未知的參數：$1" ;;
+        esac
+    done
 
     info "檢查 Python"
     command -v python3 >/dev/null || die "找不到 python3（sudo apt install python3）"
@@ -47,12 +83,22 @@ cmd_install() {
         || die "需要 Python 3.8 以上，目前是 $(python3 --version)"
     ok "$(python3 --version)"
 
-    info "建立服務帳號 ${SVC_USER}"
-    if id -u "$SVC_USER" >/dev/null 2>&1; then
-        ok "帳號已存在"
+    info "服務帳號"
+    local configured=""
+    if [[ -f "$UNIT_DIR/mc-notify@.service.d/10-user.conf" ]]; then
+        configured="$(sed -n 's/^User=//p' "$UNIT_DIR/mc-notify@.service.d/10-user.conf" | head -n1)"
+    fi
+    if [[ -n $user && $user != "$SVC_USER" ]]; then
+        id -u "$user" >/dev/null 2>&1 || die "帳號不存在：$user"
+        ok "使用既有帳號 $user"
+    elif [[ -z $user && -n $configured && $configured != "$SVC_USER" ]]; then
+        # 之前設定過其他帳號，更新時沿用，不建立專用帳號
+        ok "沿用現有的執行身分 $configured（要改回專用帳號請加 --user $SVC_USER）"
+    elif id -u "$SVC_USER" >/dev/null 2>&1; then
+        ok "使用專用帳號 $SVC_USER（已存在）"
     else
         useradd --system --no-create-home --shell /usr/sbin/nologin "$SVC_USER"
-        ok "已建立"
+        ok "已建立專用帳號 $SVC_USER"
     fi
 
     info "安裝程式到 ${PREFIX}"
@@ -64,8 +110,16 @@ cmd_install() {
     info "安裝 systemd 服務"
     install -d -o root -g root -m 700 "$CONF_DIR"
     install -o root -g root -m 644 "$SRC_DIR/systemd/mc-notify@.service" "$UNIT_DIR/mc-notify@.service"
-    systemctl daemon-reload
     ok "$UNIT_DIR/mc-notify@.service"
+    if [[ -n $user && $user == "$SVC_USER" ]]; then
+        rm -rf "$UNIT_DIR/mc-notify@.service.d"
+        ok "已改回專用帳號 $SVC_USER"
+    elif [[ -n $user ]]; then
+        write_user_dropin "$UNIT_DIR/mc-notify@.service.d" "$user"
+    elif [[ -n $configured ]]; then
+        ok "保留現有的執行身分設定（$UNIT_DIR/mc-notify@.service.d/10-user.conf）"
+    fi
+    systemctl daemon-reload
 
     if [[ -e "$UNIT_DIR/mc-notify.service" ]]; then
         warn "偵測到舊版的 mc-notify.service，新舊服務同時執行會重複通知"
@@ -87,13 +141,15 @@ cmd_install() {
 
 cmd_add() {
     require_root
-    local name="${1:-}" group=""
+    require_systemd
+    local name="${1:-}" group="" user=""
     [[ -n $name ]] || usage 1
     valid_name "$name"
     shift
     while (($#)); do
         case $1 in
             --group) group="${2:-}"; [[ -n $group ]] || die "--group 需要群組名稱"; shift 2 ;;
+            --user)  user="${2:-}";  [[ -n $user ]]  || die "--user 需要帳號名稱"; shift 2 ;;
             *) die "未知的參數：$1" ;;
         esac
     done
@@ -101,6 +157,9 @@ cmd_add() {
     [[ -f "$PREFIX/mc-notify.env.example" ]] || die "請先執行 sudo $0 安裝"
     if [[ -n $group ]]; then
         getent group "$group" >/dev/null || die "群組不存在：$group"
+    fi
+    if [[ -n $user ]]; then
+        id -u "$user" >/dev/null 2>&1 || die "帳號不存在：$user"
     fi
     local conf="$CONF_DIR/$name.env"
     if [[ -e $conf ]]; then
@@ -110,10 +169,18 @@ cmd_add() {
         ok "已建立 $conf"
     fi
 
-    if [[ -n $group ]]; then
-        usermod -aG "$group" "$SVC_USER"
-        ok "已將 ${SVC_USER} 加入群組 ${group}（讓它能讀取伺服器的 log）"
+    if [[ -n $user ]]; then
+        write_user_dropin "$UNIT_DIR/mc-notify@$name.service.d" "$user"
+        systemctl daemon-reload
     fi
+
+    local svc_user
+    svc_user="$(effective_user "$name")"
+    if [[ -n $group ]]; then
+        usermod -aG "$group" "$svc_user"
+        ok "已將 ${svc_user} 加入群組 ${group}（讓它能讀取伺服器的 log）"
+    fi
+    ok "mc-notify@${name} 將以 ${svc_user} 的身分執行"
 
     cat <<MSG
 
@@ -139,9 +206,14 @@ cmd_check() {
     [[ -f $conf ]] || die "找不到設定檔：$conf（先執行 sudo $0 add $name）"
     command -v systemd-run >/dev/null || die "找不到 systemd-run"
 
+    local svc_user svc_group
+    svc_user="$(effective_user "$name")"
+    svc_group="$(id -gn "$svc_user")"
+    info "以 ${svc_user}:${svc_group} 的身分檢查 mc-notify@${name}"
+
     # 用跟正式服務相同的帳號、設定檔與沙箱執行，結果才準確
     systemd-run --quiet --wait --pipe --collect \
-        -p User="$SVC_USER" -p Group="$SVC_USER" \
+        -p User="$svc_user" -p Group="$svc_group" \
         -p EnvironmentFile="$conf" \
         -p StateDirectory="mc-notify/$name" \
         -p NoNewPrivileges=yes -p ProtectSystem=strict -p ProtectHome=read-only -p PrivateTmp=yes \
@@ -150,7 +222,8 @@ cmd_check() {
 
 case "${1:-}" in
     "")               cmd_install ;;
-    install)          cmd_install ;;
+    install)          shift; cmd_install "$@" ;;
+    --user)           cmd_install "$@" ;;
     add)              shift; cmd_add "$@" ;;
     check)            shift; cmd_check "$@" ;;
     -h|--help|help)   usage 0 ;;

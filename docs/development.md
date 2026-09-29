@@ -64,8 +64,8 @@ GitHub Actions（`.github/workflows/tests.yml`）會在每次 push 時執行單�
 4. 執行全部測試
 5. 提交並加上標籤：
    ```bash
-   git commit -am "v2.1.0"
-   git tag v2.1.0
+   git commit -am "v2.2.0"
+   git tag v2.2.0
    git push --follow-tags
    ```
 
